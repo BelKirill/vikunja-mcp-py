@@ -2,7 +2,7 @@
 
 from enum import Enum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class EnergyLevel(str, Enum):
@@ -65,6 +65,31 @@ class HyperFocusMetadata(BaseModel):
     contextual_hints: ContextualHints = Field(default_factory=ContextualHints)
 
 
+class RelationKind(str, Enum):
+    """Vikunja task relation types."""
+
+    SUBTASK = "subtask"
+    PARENTTASK = "parenttask"
+    RELATED = "related"
+    DUPLICATEOF = "duplicateof"
+    DUPLICATES = "duplicates"
+    BLOCKING = "blocking"  # This task blocks the other
+    BLOCKED = "blocked"  # This task is blocked by the other
+    PRECEDES = "precedes"
+    FOLLOWS = "follows"
+    COPIEDFROM = "copiedfrom"
+    COPIEDTO = "copiedto"
+
+
+class RelatedTaskInfo(BaseModel):
+    """Minimal info about a related task (from Vikunja related_tasks field)."""
+
+    id: int
+    title: str = ""
+    done: bool = False
+    project_id: int = 0
+
+
 class PartialLabel(BaseModel):
     """Partial label data from Vikunja."""
 
@@ -96,12 +121,46 @@ class RawTask(BaseModel):
     project_id: int
     created: str = ""
     updated: str = ""
-    labels: list[PartialLabel] | None = Field(default_factory=list)
+    labels: list[PartialLabel] = Field(default_factory=list)
+    # related_tasks is a map: {relation_kind: [list of related task info]}
+    related_tasks: dict[str, list[RelatedTaskInfo]] = Field(default_factory=dict)
 
-    def model_post_init(self, _context):
-        """Ensure labels is never None after init."""
-        if self.labels is None:
-            self.labels = []
+    @field_validator("labels", mode="before")
+    @classmethod
+    def coerce_labels(cls, v):
+        """Convert None to empty list for labels."""
+        return v if v is not None else []
+
+    @field_validator("related_tasks", mode="before")
+    @classmethod
+    def coerce_related_tasks(cls, v):
+        """Convert None to empty dict for related_tasks."""
+        return v if v is not None else {}
+
+    @property
+    def blocked_by_ids(self) -> list[int]:
+        """Get IDs of tasks that block this task."""
+        if not self.related_tasks:
+            return []
+        blocked_tasks = self.related_tasks.get(RelationKind.BLOCKED.value, [])
+        return [t.id for t in blocked_tasks]
+
+    @property
+    def blocking_ids(self) -> list[int]:
+        """Get IDs of tasks that this task blocks."""
+        if not self.related_tasks:
+            return []
+        blocking_tasks = self.related_tasks.get(RelationKind.BLOCKING.value, [])
+        return [t.id for t in blocking_tasks]
+
+    @property
+    def is_blocked(self) -> bool:
+        """Check if this task is blocked by any incomplete task."""
+        if not self.related_tasks:
+            return False
+        blocked_tasks = self.related_tasks.get(RelationKind.BLOCKED.value, [])
+        # Task is blocked if any blocking task is not done
+        return any(not t.done for t in blocked_tasks)
 
 
 class Task(BaseModel):

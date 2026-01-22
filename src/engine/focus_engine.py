@@ -7,6 +7,7 @@ import re
 from google import genai
 
 from ..config import get_settings
+from ..dependencies import DependencyChecker
 from ..models import (
     DecisionResponse,
     EnergyLevel,
@@ -35,6 +36,7 @@ class FocusEngine:
             location=settings.gcp_location,
         )
         self.model_name = settings.gemini_model
+        self.dependency_checker = DependencyChecker()
         logger.info(f"FocusEngine initialized with model: {self.model_name}")
 
     async def get_focus_tasks(
@@ -46,31 +48,40 @@ class FocusEngine:
         """Get AI-ranked tasks for a focus session."""
         logger.info(f"Ranking {len(tasks)} tasks for focus session")
 
-        # Apply pre-filters
-        filtered_tasks = self._apply_filters(tasks, options)
-        if not filtered_tasks:
+        # Apply pre-filters (now returns actionable and blocked separately)
+        actionable_tasks, blocked_tasks = self._apply_filters(tasks, options)
+
+        if not actionable_tasks:
+            blocked_msg = (
+                f" ({len(blocked_tasks)} tasks are blocked by dependencies)"
+                if blocked_tasks
+                else ""
+            )
             return DecisionResponse(
                 ranked_tasks=[],
-                reasoning="No tasks match current context and constraints",
+                reasoning=f"No actionable tasks match current context{blocked_msg}",
                 confidence=0.0,
                 strategy="contextual_filter",
                 fallback=False,
             )
 
-        # Build prompt for AI ranking
-        prompt = self._build_ranking_prompt(filtered_tasks, options, projects)
+        # Build prompt for AI ranking (only actionable tasks)
+        prompt = self._build_ranking_prompt(actionable_tasks, options, projects)
 
         try:
             response = await self.client.aio.models.generate_content(
                 model=self.model_name,
                 contents=prompt,
             )
-            result = self._parse_ranking_response(response.text, filtered_tasks)
-            logger.info(f"AI ranked {len(result.ranked_tasks)} tasks")
+            result = self._parse_ranking_response(response.text, actionable_tasks)
+            logger.info(
+                f"AI ranked {len(result.ranked_tasks)} tasks "
+                f"({len(blocked_tasks)} blocked tasks excluded)"
+            )
             return result
         except Exception as e:
             logger.warning(f"AI ranking failed, using heuristic fallback: {e}")
-            return self._heuristic_fallback(filtered_tasks, options)
+            return self._heuristic_fallback(actionable_tasks, options)
 
     async def enrich_task(self, task: Task, available_labels: list[dict]) -> tuple[Task, bool]:
         """Enrich a task with AI-generated metadata if missing."""
@@ -151,8 +162,14 @@ Return ONLY the filter expression, nothing else. No markdown, no explanation."""
     # Private methods
     # =========================================================================
 
-    def _apply_filters(self, tasks: list[Task], options: FocusOptions) -> list[Task]:
-        """Apply contextual filters to task list."""
+    def _apply_filters(
+        self, tasks: list[Task], options: FocusOptions
+    ) -> tuple[list[Task], list[Task]]:
+        """Apply contextual filters to task list.
+
+        Returns:
+            Tuple of (actionable_tasks, blocked_tasks)
+        """
         filtered = tasks
 
         # Filter by projects
@@ -177,8 +194,13 @@ Return ONLY the filter expression, nothing else. No markdown, no explanation."""
             )
         ]
 
-        logger.debug(f"Filtered {len(tasks)} -> {len(filtered)} tasks")
-        return filtered
+        # Separate blocked tasks using DependencyChecker
+        actionable, blocked = self.dependency_checker.filter_blocked_tasks(filtered)
+
+        logger.debug(
+            f"Filtered {len(tasks)} -> {len(actionable)} actionable, {len(blocked)} blocked"
+        )
+        return actionable, blocked
 
     def _energy_matches(self, task_energy: EnergyLevel, user_energy: EnergyLevel) -> bool:
         """Check if task energy requirement matches user's current energy."""
@@ -204,9 +226,14 @@ Return ONLY the filter expression, nothing else. No markdown, no explanation."""
         task_list = []
         for i, task in enumerate(tasks):
             project_name = project_map.get(task.raw_task.project_id, "Unknown")
+            # Add dependency context
+            dep_info = ""
+            blocking_count = len(task.raw_task.blocking_ids)
+            if blocking_count > 0:
+                dep_info = f" [UNBLOCKS {blocking_count} task(s)]"
             task_list.append(
                 f"{i}. [{task.raw_task.identifier}] {task.raw_task.title} "
-                f"(Project: {project_name}, Priority: {task.raw_task.priority})"
+                f"(Project: {project_name}, Priority: {task.raw_task.priority}){dep_info}"
             )
 
         return f"""You are an ADHD-optimized task selection assistant. \
@@ -228,6 +255,7 @@ RANKING CRITERIA:
 3. Consider task priority
 4. Time available should influence task complexity
 5. Follow any special instructions
+6. PRIORITIZE tasks marked with [UNBLOCKS N task(s)] - completing these enables more work
 
 Return a JSON object with this structure:
 {{

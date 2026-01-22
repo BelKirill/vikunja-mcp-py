@@ -5,6 +5,7 @@ AI-powered MCP server for ADHD-optimized task management using Vikunja and Verte
 ## Features
 
 - **Daily Focus Sessions**: AI-ranked tasks based on energy level and work mode
+- **Dependency Awareness**: Blocked tasks excluded, unblocking tasks prioritized
 - **Smart Filtering**: Natural language to Vikunja filter expression conversion
 - **Task Enrichment**: Automatic metadata generation for ADHD workflows
 - **Full MCP Integration**: Works with Claude, OpenAI, and other MCP-compatible clients
@@ -96,6 +97,52 @@ Comments are useful for:
 1. **Start sessions with context**: Check recent comments on tasks you're picking up
 2. **Document blockers immediately**: When stuck, add a comment before switching tasks
 3. **End sessions with notes**: Use comments to capture where you left off
+
+## Dependency Management
+
+The server automatically tracks task dependencies from Vikunja's related_tasks API:
+
+### How It Works
+
+- **Blocked tasks excluded**: Tasks blocked by incomplete dependencies are automatically excluded from `daily-focus` recommendations
+- **Unblocking priority**: Tasks that unblock others are highlighted and prioritized by AI ranking
+- **Chain context**: `get-full-task` shows dependency chain progress (e.g., "2/5 completed")
+
+### Dependency Fields in Responses
+
+**daily-focus** tasks include:
+- `is_blocked`: Whether task is blocked by incomplete dependencies
+- `blocked_by_ids`: List of blocking task IDs
+- `blocking_ids`: List of task IDs this task blocks
+- `unlocks_tasks`: True if completing this task unblocks others
+
+**get-full-task** includes full dependency context:
+```json
+{
+  "dependencies": {
+    "is_blocked": false,
+    "blocked_by": [{"id": 99, "title": "Setup infra", "done": true}],
+    "blocking": [{"id": 101, "title": "Deploy app", "done": false}],
+    "chain_context": {
+      "progress": "2/5",
+      "progress_percent": 40.0,
+      "next_actionable_ids": [100]
+    }
+  }
+}
+```
+
+### Setting Up Dependencies in Vikunja
+
+1. Open a task in Vikunja
+2. Add a relation with type "blocked by" or "blocks"
+3. The MCP server automatically reads these relationships
+
+### ADHD Workflow Tips
+
+- **Focus on unblocking tasks**: Completing tasks that unlock others creates momentum
+- **Use chain progress**: See where you are in multi-step projects
+- **Trust the filter**: Blocked tasks are hidden so you don't get distracted
 
 ## Development
 

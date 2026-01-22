@@ -72,6 +72,15 @@ class ToolHandlers:
         # Get AI-ranked tasks
         decision = await self.engine.get_focus_tasks(tasks, options, projects)
 
+        # Count blocked tasks for summary
+        blocked_count = sum(1 for t in tasks if t.raw_task.is_blocked)
+
+        # Identify high-impact tasks (tasks that unblock others)
+        unblocking_task_ids = set()
+        for t in tasks:
+            if t.raw_task.blocking_ids and not t.raw_task.done:
+                unblocking_task_ids.add(t.raw_task.id)
+
         # Get comment counts for ranked tasks (for context)
         comment_counts: dict[int, int] = {}
         recent_comments: dict[int, str | None] = {}
@@ -94,6 +103,7 @@ class ToolHandlers:
             "message": "Focus tasks retrieved successfully",
             "summary": {
                 "total_tasks": len(decision.ranked_tasks),
+                "blocked_tasks_excluded": blocked_count,
                 "energy_filter": energy,
                 "mode_filter": mode,
                 "target_hours": hours,
@@ -114,6 +124,10 @@ class ToolHandlers:
                     "metadata": rt.task.metadata.model_dump() if rt.task.metadata else None,
                     "comment_count": comment_counts.get(rt.task.raw_task.id, 0),
                     "recent_comment": recent_comments.get(rt.task.raw_task.id),
+                    "is_blocked": rt.task.raw_task.is_blocked,
+                    "blocked_by_ids": rt.task.raw_task.blocked_by_ids,
+                    "blocking_ids": rt.task.raw_task.blocking_ids,
+                    "unlocks_tasks": rt.task.raw_task.id in unblocking_task_ids,
                 }
                 for rt in decision.ranked_tasks
             ],
@@ -139,6 +153,40 @@ class ToolHandlers:
         # Get project
         project = await self.vikunja.get_project(raw_task.project_id)
 
+        # Build dependency info from related_tasks
+        # Get all tasks for chain analysis context
+        all_tasks = await self.vikunja.get_incomplete_tasks()
+        blocking_info = self.engine.dependency_checker.get_blocking_info(
+            raw_task, all_tasks
+        )
+
+        # Build chain context if task is part of a chain
+        chain_context = None
+        if blocking_info.chain_context:
+            chain = blocking_info.chain_context
+            chain_context = {
+                "chain_root_id": chain.root_task_id,
+                "chain_tasks": chain.chain_tasks,
+                "total_in_chain": chain.total_tasks,
+                "completed_in_chain": chain.completed_tasks,
+                "progress": f"{chain.completed_tasks}/{chain.total_tasks}",
+                "progress_percent": chain.progress_percent,
+                "next_actionable_ids": chain.next_actionable_ids,
+            }
+
+        dependencies = {
+            "is_blocked": raw_task.is_blocked,
+            "blocked_by": [
+                {"id": t.id, "title": t.title, "done": t.done}
+                for t in raw_task.related_tasks.get("blocked", [])
+            ],
+            "blocking": [
+                {"id": t.id, "title": t.title, "done": t.done}
+                for t in raw_task.related_tasks.get("blocking", [])
+            ],
+            "chain_context": chain_context,
+        }
+
         return {
             "task_id": task.raw_task.id,
             "identifier": task.raw_task.identifier,
@@ -149,6 +197,7 @@ class ToolHandlers:
             "priority": task.raw_task.priority,
             "has_hyperfocus_data": task.metadata is not None,
             "metadata": task.metadata.model_dump() if task.metadata else None,
+            "dependencies": dependencies,
             "comments": [c.model_dump() for c in comments],
             "project": project.model_dump(),
             "created": task.raw_task.created,
@@ -267,8 +316,16 @@ class ToolHandlers:
                 "filter_type": filter_type,
                 "filter_used": filter_used,
             },
-            "tasks": [t.model_dump() for t in tasks],
+            "tasks": [self._raw_task_to_dict(t) for t in tasks],
         }
+
+    def _raw_task_to_dict(self, t: RawTask) -> dict[str, Any]:
+        """Convert RawTask to dict with computed dependency properties."""
+        result = t.model_dump(exclude={"related_tasks"})
+        result["is_blocked"] = t.is_blocked
+        result["blocked_by_ids"] = t.blocked_by_ids
+        result["blocking_ids"] = t.blocking_ids
+        return result
 
     async def bulk_update_tasks(
         self,

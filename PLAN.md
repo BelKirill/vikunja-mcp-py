@@ -1,8 +1,8 @@
 # vikunja-mcp-py Implementation Plan
 
 > **Last Updated:** 2026-01-22
-> **Total Open Tasks:** 43
-> **Completed:** 7
+> **Total Open Tasks:** 34
+> **Completed:** 16
 > **Estimated Phases:** 6
 
 ---
@@ -72,25 +72,25 @@ This plan organizes 50 open tasks into 6 sequential phases based on dependencies
 
 ### Dependency Chain (Tasks 95-104)
 
-| Order | Task ID | Title | Energy | Est. | Blocks |
+| Order | Task ID | Title | Energy | Est. | Status |
 |-------|---------|-------|--------|------|--------|
-| 1 | 95 | Extract dependency data from Vikunja API | medium | 30m | 96-104 |
-| 2 | 96 | Update MCP tool response schema | medium | 30m | 97 |
-| 3 | 97 | Build dependency checker core logic | high | 45m | 98 |
-| 4 | 98 | Integrate dependency filtering into focus engine | medium | 120m | 99 |
-| 5 | 99 | Update daily focus tool with dependency awareness | medium | 120m | 100 |
-| 6 | 100 | Add chain context metadata enhancement | medium | 120m | 101 |
-| 7 | 101 | Enhance AI prompt with dependency context | medium | 120m | 102 |
-| 8 | 102 | Write unit tests for dependency system | medium | 120m | 104 |
-| 9 | 104 | Document dependency system usage | medium | 120m | - |
+| 1 | 95 | Extract dependency data from Vikunja API | medium | 30m | **DONE** |
+| 2 | 96 | Update MCP tool response schema | medium | 30m | **DONE** |
+| 3 | 97 | Build dependency checker core logic | high | 45m | **DONE** |
+| 4 | 98 | Integrate dependency filtering into focus engine | medium | 120m | **DONE** |
+| 5 | 99 | Update daily focus tool with dependency awareness | medium | 120m | **DONE** |
+| 6 | 100 | Add chain context metadata enhancement | medium | 120m | **DONE** |
+| 7 | 101 | Enhance AI prompt with dependency context | medium | 120m | **DONE** |
+| 8 | 102 | Write unit tests for dependency system | medium | 120m | **DONE** |
+| 9 | 104 | Document dependency system usage | medium | 120m | **DONE** |
 
 **Completion Criteria:**
-- [ ] Dependency data extracted from Vikunja related_tasks API
-- [ ] Blocked tasks excluded from daily-focus recommendations
-- [ ] Chain context shown in task metadata
-- [ ] AI prompts include dependency information
-- [ ] Unit tests passing with >80% coverage
-- [ ] System documented
+- [x] Dependency data extracted from Vikunja related_tasks API
+- [x] Blocked tasks excluded from daily-focus recommendations
+- [x] Chain context shown in task metadata
+- [x] AI prompts include dependency information
+- [x] Unit tests passing with >80% coverage (26 tests)
+- [x] System documented in README.md
 
 **Dependencies:** Phase 2 complete
 
