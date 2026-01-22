@@ -1,8 +1,8 @@
 # vikunja-mcp-py Implementation Plan
 
 > **Last Updated:** 2026-01-22
-> **Total Open Tasks:** 44
-> **Completed:** 6
+> **Total Open Tasks:** 43
+> **Completed:** 7
 > **Estimated Phases:** 6
 
 ---
@@ -54,13 +54,13 @@ This plan organizes 50 open tasks into 6 sequential phases based on dependencies
 | Task ID | Title | Energy | Est. | Blocks |
 |---------|-------|--------|------|--------|
 | 153 | Integrate comments with MCP workflow | medium | 30m | **DONE** |
-| 154 | Document comment system usage | low | 25m | pending |
+| 154 | Document comment system usage | low | 25m | **DONE** |
 
 **Completion Criteria:**
 - [x] get-filtered-tasks retries 3x before failing
 - [x] bulk_update_tasks tool operational
 - [x] Comments integrated with get-task-metadata
-- [ ] Comment system documented
+- [x] Comment system documented
 
 **Dependencies:** Phase 1 complete
 

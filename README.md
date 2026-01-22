@@ -67,7 +67,35 @@ Add to your `~/.claude.json` or project `.mcp.json`:
 | `get-filtered-tasks` | Retrieve tasks using filter expressions or natural language |
 | `upsert-task` | Create a new task or update an existing task |
 | `add-comment` | Add a comment to a task |
+| `bulk-update-tasks` | Update multiple tasks at once (done, priority, color) |
 | `export-project-json` | Export tasks to local JSON file with enriched metadata |
+
+## Comment System
+
+The comment system helps you track progress and maintain context on tasks:
+
+### Adding Comments
+
+```
+Use the add-comment tool with task_id and your comment text.
+```
+
+Comments are useful for:
+- Documenting progress on long-running tasks
+- Recording blockers or decisions
+- Leaving context for when you return to a task later
+
+### Comment Integration
+
+- **daily-focus**: Shows comment counts and recent comment previews for recommended tasks
+- **get-full-task**: Returns all comments with full details
+- **upsert-task**: Suggests adding a comment when marking tasks complete
+
+### ADHD Workflow Tips
+
+1. **Start sessions with context**: Check recent comments on tasks you're picking up
+2. **Document blockers immediately**: When stuck, add a comment before switching tasks
+3. **End sessions with notes**: Use comments to capture where you left off
 
 ## Development
 
