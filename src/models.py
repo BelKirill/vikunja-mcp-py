@@ -1,7 +1,6 @@
 """Data models for Vikunja MCP."""
 
 from enum import Enum
-
 from typing import Annotated
 
 from pydantic import BaseModel, BeforeValidator, Field
@@ -120,6 +119,39 @@ class PartialProject(BaseModel):
     parent_project_id: int | None = None
 
 
+class ProjectContext(BaseModel):
+    """Rich project context for AI decision-making.
+
+    This model extends basic project data with work categorization
+    and context switching metadata to enable intelligent task grouping
+    and minimize cognitive load during focus sessions.
+    """
+
+    project_id: int
+    name: str
+    description: str = ""
+
+    # Work categorization
+    work_type: str = "general"  # coding, writing, admin, learning, research
+    domain: str = ""  # e.g., "vikunja-mcp", "infra", "fairgen"
+    typical_energy: EnergyLevel = EnergyLevel.MEDIUM
+    typical_mode: WorkMode = WorkMode.DEEP
+
+    # Context switching metadata
+    context_weight: int = Field(default=5, ge=1, le=10)  # How heavy is the context
+    requires_tools: list[str] = Field(default_factory=list)  # IDEs, clusters, etc.
+    related_projects: list[int] = Field(default_factory=list)  # Projects with shared context
+
+    @classmethod
+    def from_partial(cls, project: "PartialProject") -> "ProjectContext":
+        """Create ProjectContext from PartialProject with defaults."""
+        return cls(
+            project_id=project.id,
+            name=project.title,
+            description=project.description,
+        )
+
+
 class RawTask(BaseModel):
     """Raw task data from Vikunja API."""
 
@@ -195,12 +227,33 @@ class DecisionResponse(BaseModel):
     fallback: bool = False
 
 
+class CommentAuthor(BaseModel):
+    """Author details for a comment."""
+
+    id: int = 0
+    name: str = ""
+    username: str = ""
+
+
+def _coerce_author(v: dict | str | None) -> CommentAuthor:
+    """Convert author field to CommentAuthor."""
+    if v is None:
+        return CommentAuthor()
+    if isinstance(v, str):
+        return CommentAuthor(name=v)
+    if isinstance(v, dict):
+        return CommentAuthor.model_validate(v)
+    return CommentAuthor()
+
+
 class Comment(BaseModel):
     """Task comment from Vikunja."""
 
     id: int
     comment: str
-    author: str = ""
+    author: Annotated[CommentAuthor, BeforeValidator(_coerce_author)] = Field(
+        default_factory=CommentAuthor
+    )
     created: str = ""
     updated: str = ""
 
