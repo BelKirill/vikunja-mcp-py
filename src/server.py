@@ -189,6 +189,40 @@ def create_server() -> Server:
                 },
             ),
             Tool(
+                name="bulk-update-tasks",
+                description=(
+                    "Update multiple tasks at once with the same changes. "
+                    "Supports: done, priority, hex_color. "
+                    "Excludes title/description to prevent accidental overwrites."
+                ),
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "task_ids": {
+                            "type": "array",
+                            "items": {"type": "integer"},
+                            "description": "List of task IDs to update",
+                        },
+                        "done": {
+                            "type": "boolean",
+                            "description": "Mark all tasks as done/not done",
+                        },
+                        "priority": {
+                            "type": "integer",
+                            "description": "Set priority for all tasks (1-5)",
+                            "minimum": 1,
+                            "maximum": 5,
+                        },
+                        "hex_color": {
+                            "type": "string",
+                            "description": "Set color for all tasks (6 hex chars)",
+                            "pattern": "^[0-9A-Fa-f]{6}$",
+                        },
+                    },
+                    "required": ["task_ids"],
+                },
+            ),
+            Tool(
                 name="export-project-json",
                 description="Export tasks to local JSON file with enriched metadata",
                 inputSchema={
@@ -275,6 +309,14 @@ def create_server() -> Server:
                     priority=arguments.get("priority"),
                     hex_color=arguments.get("hex_color"),
                     done=arguments.get("done"),
+                )
+
+            elif name == "bulk-update-tasks":
+                result = await handlers.bulk_update_tasks(
+                    task_ids=arguments["task_ids"],
+                    done=arguments.get("done"),
+                    priority=arguments.get("priority"),
+                    hex_color=arguments.get("hex_color"),
                 )
 
             elif name == "export-project-json":

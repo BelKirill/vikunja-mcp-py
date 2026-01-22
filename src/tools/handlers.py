@@ -158,36 +158,181 @@ class ToolHandlers:
         project_id: int | None = None,
         limit: int = 50,
     ) -> dict[str, Any]:
-        """Get tasks using filter expressions or natural language."""
+        """Get tasks using filter expressions or natural language.
+
+        Implements retry logic with error context for natural language filters.
+        If filter generation/execution fails, retries up to 3 times with error
+        feedback to help AI correct the filter expression.
+        """
         logger.info(f"get_filtered_tasks called: filter={filter}, natural={natural_request}")
 
         if not filter and not natural_request:
             raise ValueError("Either 'filter' or 'natural_request' must be provided")
 
-        # Determine filter to use
+        max_retries = 3
+        attempts: list[dict[str, str]] = []
+
+        # Direct filter expression - single attempt
         if filter:
             final_filter = filter
-            filter_type = "expression"
-        else:
-            final_filter = await self.engine.suggest_filter(natural_request)  # type: ignore
-            filter_type = "natural_language"
+            if project_id:
+                final_filter = f"({final_filter}) && project_id = {project_id}"
 
-        # Add project filter if specified
-        if project_id:
-            final_filter = f"({final_filter}) && project_id = {project_id}"
+            try:
+                raw_tasks = await self.vikunja.get_filtered_tasks(final_filter)
+                return self._build_filter_response(raw_tasks[:limit], "expression", final_filter)
+            except Exception as e:
+                raise ValueError(f"Invalid filter expression: {filter}. Error: {e}") from e
 
-        # Get filtered tasks
-        raw_tasks = await self.vikunja.get_filtered_tasks(final_filter)
-        tasks = raw_tasks[:limit]
+        # Natural language - retry with error context
+        for attempt in range(max_retries):
+            try:
+                # Generate filter, passing previous errors for context
+                previous_errors = attempts if attempts else None
+                final_filter = await self.engine.suggest_filter(
+                    natural_request,  # type: ignore
+                    previous_errors=previous_errors,
+                )
 
+                # Add project filter if specified
+                if project_id:
+                    final_filter = f"({final_filter}) && project_id = {project_id}"
+
+                logger.info(f"Attempt {attempt + 1}/{max_retries}: trying filter '{final_filter}'")
+
+                # Execute filter
+                raw_tasks = await self.vikunja.get_filtered_tasks(final_filter)
+
+                # Success - include retry info if we had to retry
+                response = self._build_filter_response(
+                    raw_tasks[:limit], "natural_language", final_filter
+                )
+                if attempts:
+                    response["summary"]["retry_attempts"] = len(attempts)
+                    response["summary"]["previous_errors"] = attempts
+                return response
+
+            except Exception as e:
+                error_msg = str(e)
+                logger.warning(
+                    f"Filter attempt {attempt + 1}/{max_retries} failed: "
+                    f"filter='{final_filter}', error={error_msg}"
+                )
+                attempts.append({"filter": final_filter, "error": error_msg})
+
+        # All retries exhausted - return comprehensive error report
+        error_report = {
+            "error": "Failed to generate valid filter after maximum retries",
+            "original_request": natural_request,
+            "total_attempts": max_retries,
+            "attempts": attempts,
+            "suggestion": (
+                "Try rephrasing your request or use a direct filter expression. "
+                "Examples: 'done = false', 'priority >= 3', 'project_id = 5'"
+            ),
+        }
+        raise ValueError(json.dumps(error_report, indent=2))
+
+    def _build_filter_response(
+        self,
+        tasks: list[RawTask],
+        filter_type: str,
+        filter_used: str,
+    ) -> dict[str, Any]:
+        """Build standardized response for filtered tasks."""
         return {
             "message": "Filtered tasks retrieved successfully",
             "summary": {
                 "total_tasks": len(tasks),
                 "filter_type": filter_type,
-                "filter_used": final_filter,
+                "filter_used": filter_used,
             },
             "tasks": [t.model_dump() for t in tasks],
+        }
+
+    async def bulk_update_tasks(
+        self,
+        task_ids: list[int],
+        done: bool | None = None,
+        priority: int | None = None,
+        hex_color: str | None = None,
+    ) -> dict[str, Any]:
+        """Bulk update multiple tasks with the same changes.
+
+        Supports updating: done status, priority, hex_color.
+        Excludes title/description to prevent accidental overwrites.
+
+        Args:
+            task_ids: List of task IDs to update
+            done: Mark all tasks as done/not done
+            priority: Set priority for all tasks (1-5)
+            hex_color: Set color for all tasks (6-char hex)
+
+        Returns:
+            Summary with success/failure counts and details
+        """
+        logger.info(f"bulk_update_tasks called: {len(task_ids)} tasks")
+
+        if not task_ids:
+            raise ValueError("task_ids list cannot be empty")
+
+        # Build updates dict - only include specified fields
+        updates: dict[str, Any] = {}
+        if done is not None:
+            updates["done"] = done
+        if priority is not None:
+            if not 1 <= priority <= 5:
+                raise ValueError("priority must be between 1 and 5")
+            updates["priority"] = priority
+        if hex_color is not None:
+            if len(hex_color) != 6 or not all(c in "0123456789ABCDEFabcdef" for c in hex_color):
+                raise ValueError("hex_color must be 6 hex characters (e.g., 'FF5733')")
+            updates["hex_color"] = hex_color
+
+        if not updates:
+            raise ValueError(
+                "At least one update field (done, priority, hex_color) must be provided"
+            )
+
+        # Process in batches of 20 to avoid API overload
+        batch_size = 20
+        results: list[dict[str, Any]] = []
+        failed: list[dict[str, Any]] = []
+
+        for i in range(0, len(task_ids), batch_size):
+            batch = task_ids[i : i + batch_size]
+
+            for task_id in batch:
+                try:
+                    result = await self.vikunja.update_task(task_id, updates)
+                    results.append(
+                        {
+                            "task_id": result.id,
+                            "identifier": result.identifier,
+                            "title": result.title,
+                            "status": "updated",
+                        }
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to update task {task_id}: {e}")
+                    failed.append(
+                        {
+                            "task_id": task_id,
+                            "status": "failed",
+                            "error": str(e),
+                        }
+                    )
+
+        return {
+            "message": f"Bulk update completed: {len(results)} succeeded, {len(failed)} failed",
+            "summary": {
+                "total_requested": len(task_ids),
+                "succeeded": len(results),
+                "failed": len(failed),
+                "updates_applied": updates,
+            },
+            "updated_tasks": results,
+            "failed_tasks": failed if failed else None,
         }
 
     async def upsert_task(

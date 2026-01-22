@@ -93,8 +93,27 @@ class FocusEngine:
             logger.warning(f"Failed to enrich task {task.raw_task.id}: {e}")
             return task, False
 
-    async def suggest_filter(self, natural_request: str) -> str:
-        """Convert natural language to Vikunja filter expression."""
+    async def suggest_filter(
+        self,
+        natural_request: str,
+        previous_errors: list[dict] | None = None,
+    ) -> str:
+        """Convert natural language to Vikunja filter expression.
+
+        Args:
+            natural_request: The natural language request to convert
+            previous_errors: List of previous attempt errors for retry context
+
+        Returns:
+            A Vikunja filter expression string
+        """
+        error_context = ""
+        if previous_errors:
+            error_context = "\n\nPREVIOUS ATTEMPTS FAILED:\n"
+            for i, err in enumerate(previous_errors, 1):
+                error_context += f"{i}. Filter: {err['filter']} -> Error: {err['error']}\n"
+            error_context += "\nPlease generate a CORRECTED filter avoiding these errors."
+
         prompt = f"""Convert this natural language request to a Vikunja filter expression.
 
 Request: {natural_request}
@@ -104,8 +123,11 @@ Vikunja filter syntax:
 - priority >= 3 (high priority)
 - project_id = 5 (specific project)
 - Use && for AND, || for OR
+- String values need quotes: title ~ "keyword"
+- Date filters: due_date < now (overdue tasks)
+{error_context}
 
-Return ONLY the filter expression, nothing else."""
+Return ONLY the filter expression, nothing else. No markdown, no explanation."""
 
         try:
             response = await self.client.aio.models.generate_content(
@@ -113,6 +135,12 @@ Return ONLY the filter expression, nothing else."""
                 contents=prompt,
             )
             filter_expr = response.text.strip()
+            # Clean up any markdown code blocks if present
+            if filter_expr.startswith("```"):
+                filter_expr = filter_expr.split("\n", 1)[-1]
+            if filter_expr.endswith("```"):
+                filter_expr = filter_expr.rsplit("```", 1)[0]
+            filter_expr = filter_expr.strip()
             logger.info(f"Generated filter: {filter_expr}")
             return filter_expr
         except Exception as e:

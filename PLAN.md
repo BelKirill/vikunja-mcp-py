@@ -1,7 +1,8 @@
 # vikunja-mcp-py Implementation Plan
 
 > **Last Updated:** 2026-01-22
-> **Total Open Tasks:** 50
+> **Total Open Tasks:** 45
+> **Completed:** 5
 > **Estimated Phases:** 6
 
 ---
@@ -18,15 +19,15 @@ This plan organizes 50 open tasks into 6 sequential phases based on dependencies
 
 | Task ID | Title | Energy | Est. | Status |
 |---------|-------|--------|------|--------|
-| 92 | Test CI pipeline end-to-end | high | 20m | pending |
-| 93 | Add "How to use Claude" snippet to docs | low | 15m | pending |
-| 94 | PR template update (optional polish) | low | 10m | pending |
+| 92 | Test CI pipeline end-to-end | high | 20m | **DONE** |
+| 93 | Add "How to use Claude" snippet to docs | low | 15m | **DONE** |
+| 94 | PR template update (optional polish) | low | 10m | **DONE** |
 
 **Completion Criteria:**
-- [ ] CI/CD pipeline runs green on draft PR
-- [ ] Docker image builds and pushes to GHCR
-- [ ] README updated with Claude configuration
-- [ ] PR template includes container build checklist
+- [x] CI/CD pipeline runs green on draft PR
+- [x] Docker image builds and pushes to GHCR
+- [x] README updated with Claude configuration
+- [x] PR template includes container build checklist
 
 **Dependencies:** None - foundation work
 
@@ -40,13 +41,13 @@ This plan organizes 50 open tasks into 6 sequential phases based on dependencies
 
 | Task ID | Title | Energy | Est. | Status |
 |---------|-------|--------|------|--------|
-| 149 | 400 error: get-filtered-tasks retry logic | medium | 45m | pending |
+| 149 | 400 error: get-filtered-tasks retry logic | medium | 45m | **DONE** |
 
 ### 2B: Bulk Operations
 
 | Task ID | Title | Energy | Est. | Status |
 |---------|-------|--------|------|--------|
-| 112 | Implement bulk update tool | medium | 60m | pending |
+| 112 | Implement bulk update tool | medium | 60m | **DONE** |
 
 ### 2C: Comment System (EPIC #150)
 
@@ -56,8 +57,8 @@ This plan organizes 50 open tasks into 6 sequential phases based on dependencies
 | 154 | Document comment system usage | low | 25m | - |
 
 **Completion Criteria:**
-- [ ] get-filtered-tasks retries 3x before failing
-- [ ] bulk_update_tasks tool operational
+- [x] get-filtered-tasks retries 3x before failing
+- [x] bulk_update_tasks tool operational
 - [ ] Comments integrated with get-task-metadata
 - [ ] Comment system documented
 

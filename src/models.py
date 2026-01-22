@@ -96,7 +96,12 @@ class RawTask(BaseModel):
     project_id: int
     created: str = ""
     updated: str = ""
-    labels: list[PartialLabel] = Field(default_factory=list)
+    labels: list[PartialLabel] | None = Field(default_factory=list)
+
+    def model_post_init(self, _context):
+        """Ensure labels is never None after init."""
+        if self.labels is None:
+            self.labels = []
 
 
 class Task(BaseModel):
