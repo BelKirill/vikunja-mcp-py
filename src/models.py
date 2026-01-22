@@ -2,7 +2,19 @@
 
 from enum import Enum
 
-from pydantic import BaseModel, Field, field_validator
+from typing import Annotated
+
+from pydantic import BaseModel, BeforeValidator, Field
+
+
+def _coerce_list(v: list | None) -> list:
+    """Convert None to empty list."""
+    return v if v is not None else []
+
+
+def _coerce_dict(v: dict | None) -> dict:
+    """Convert None to empty dict."""
+    return v if v is not None else {}
 
 
 class EnergyLevel(str, Enum):
@@ -121,21 +133,13 @@ class RawTask(BaseModel):
     project_id: int
     created: str = ""
     updated: str = ""
-    labels: list[PartialLabel] = Field(default_factory=list)
+    labels: Annotated[list[PartialLabel], BeforeValidator(_coerce_list)] = Field(
+        default_factory=list
+    )
     # related_tasks is a map: {relation_kind: [list of related task info]}
-    related_tasks: dict[str, list[RelatedTaskInfo]] = Field(default_factory=dict)
-
-    @field_validator("labels", mode="before")
-    @classmethod
-    def coerce_labels(cls, v):
-        """Convert None to empty list for labels."""
-        return v if v is not None else []
-
-    @field_validator("related_tasks", mode="before")
-    @classmethod
-    def coerce_related_tasks(cls, v):
-        """Convert None to empty dict for related_tasks."""
-        return v if v is not None else {}
+    related_tasks: Annotated[
+        dict[str, list[RelatedTaskInfo]], BeforeValidator(_coerce_dict)
+    ] = Field(default_factory=dict)
 
     @property
     def blocked_by_ids(self) -> list[int]:
