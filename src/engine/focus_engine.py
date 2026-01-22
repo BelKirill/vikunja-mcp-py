@@ -7,6 +7,7 @@ import re
 from google import genai
 
 from ..config import get_settings
+from ..context import ContextManager
 from ..dependencies import DependencyChecker
 from ..models import (
     DecisionResponse,
@@ -14,6 +15,7 @@ from ..models import (
     FocusOptions,
     HyperFocusMetadata,
     PartialProject,
+    ProjectContext,
     RankedTask,
     Task,
     WorkMode,
@@ -25,8 +27,13 @@ logger = logging.getLogger(__name__)
 class FocusEngine:
     """AI-powered task selection and enrichment engine."""
 
-    def __init__(self):
-        """Initialize the focus engine with Google Gen AI SDK."""
+    def __init__(self, context_manager: ContextManager | None = None):
+        """Initialize the focus engine with Google Gen AI SDK.
+
+        Args:
+            context_manager: Optional ContextManager for project context awareness.
+                           If not provided, a default instance is created.
+        """
         settings = get_settings()
 
         # Initialize Gen AI client for Vertex AI
@@ -37,6 +44,7 @@ class FocusEngine:
         )
         self.model_name = settings.gemini_model
         self.dependency_checker = DependencyChecker()
+        self.context_manager = context_manager or ContextManager()
         logger.info(f"FocusEngine initialized with model: {self.model_name}")
 
     async def get_focus_tasks(
@@ -44,8 +52,19 @@ class FocusEngine:
         tasks: list[Task],
         options: FocusOptions,
         projects: list[PartialProject],
+        current_project_id: int | None = None,
     ) -> DecisionResponse:
-        """Get AI-ranked tasks for a focus session."""
+        """Get AI-ranked tasks for a focus session.
+
+        Args:
+            tasks: List of tasks to consider
+            options: Focus session options (energy, mode, etc.)
+            projects: List of projects for context
+            current_project_id: Optional current project for context continuity
+
+        Returns:
+            DecisionResponse with ranked tasks
+        """
         logger.info(f"Ranking {len(tasks)} tasks for focus session")
 
         # Apply pre-filters (now returns actionable and blocked separately)
@@ -65,8 +84,13 @@ class FocusEngine:
                 fallback=False,
             )
 
-        # Build prompt for AI ranking (only actionable tasks)
-        prompt = self._build_ranking_prompt(actionable_tasks, options, projects)
+        # Enrich projects with context information
+        project_contexts = self.context_manager.enrich_projects(projects)
+
+        # Build prompt for AI ranking with project context
+        prompt = self._build_ranking_prompt(
+            actionable_tasks, options, project_contexts, current_project_id
+        )
 
         try:
             response = await self.client.aio.models.generate_content(
@@ -74,6 +98,18 @@ class FocusEngine:
                 contents=prompt,
             )
             result = self._parse_ranking_response(response.text, actionable_tasks)
+
+            # Optimize task order to minimize context switching
+            if result.ranked_tasks:
+                optimized_tasks = self.context_manager.optimize_task_order(
+                    [rt.task for rt in result.ranked_tasks],
+                    project_contexts,
+                    current_project_id,
+                )
+                # Rebuild ranked tasks preserving scores but with optimized order
+                task_to_ranked = {rt.task.raw_task.id: rt for rt in result.ranked_tasks}
+                result.ranked_tasks = [task_to_ranked[t.raw_task.id] for t in optimized_tasks]
+
             logger.info(
                 f"AI ranked {len(result.ranked_tasks)} tasks "
                 f"({len(blocked_tasks)} blocked tasks excluded)"
@@ -218,23 +254,40 @@ Return ONLY the filter expression, nothing else. No markdown, no explanation."""
         self,
         tasks: list[Task],
         options: FocusOptions,
-        projects: list[PartialProject],
+        projects: list[ProjectContext],
+        current_project_id: int | None = None,
     ) -> str:
-        """Build the prompt for task ranking."""
-        project_map = {p.id: p.title for p in projects}
+        """Build the prompt for task ranking with project context."""
+        project_map = {p.project_id: p for p in projects}
 
         task_list = []
         for i, task in enumerate(tasks):
-            project_name = project_map.get(task.raw_task.project_id, "Unknown")
+            project = project_map.get(task.raw_task.project_id)
+            project_name = project.name if project else "Unknown"
             # Add dependency context
             dep_info = ""
             blocking_count = len(task.raw_task.blocking_ids)
             if blocking_count > 0:
                 dep_info = f" [UNBLOCKS {blocking_count} task(s)]"
+            # Add project context weight indicator
+            ctx_info = ""
+            if project and project.context_weight > 6:
+                ctx_info = " [HEAVY CONTEXT]"
             task_list.append(
                 f"{i}. [{task.raw_task.identifier}] {task.raw_task.title} "
-                f"(Project: {project_name}, Priority: {task.raw_task.priority}){dep_info}"
+                f"(Project: {project_name}, Priority: {task.raw_task.priority}){dep_info}{ctx_info}"
             )
+
+        # Build project context section
+        project_context_str = self.context_manager.format_context_for_prompt(
+            projects, current_project_id
+        )
+
+        current_project_note = ""
+        if current_project_id:
+            current = project_map.get(current_project_id)
+            if current:
+                current_project_note = f"\n- Currently working on: {current.name}"
 
         return f"""You are an ADHD-optimized task selection assistant. \
 Rank these tasks for a focus session.
@@ -244,7 +297,9 @@ USER CONTEXT:
 - Work mode: {options.mode.value}
 - Available time: {options.max_minutes} minutes
 - Max tasks to return: {options.max_tasks}
-- Instructions: {options.instructions}
+- Instructions: {options.instructions}{current_project_note}
+
+{project_context_str}
 
 TASKS:
 {chr(10).join(task_list)}
@@ -256,6 +311,9 @@ RANKING CRITERIA:
 4. Time available should influence task complexity
 5. Follow any special instructions
 6. PRIORITIZE tasks marked with [UNBLOCKS N task(s)] - completing these enables more work
+7. MINIMIZE context switching - group tasks from the same project when reasonable
+8. If user has a current project, prioritize tasks from that project first
+9. Consider project context_weight - avoid frequent switches between heavy-context projects
 
 Return a JSON object with this structure:
 {{

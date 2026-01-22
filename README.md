@@ -6,6 +6,7 @@ AI-powered MCP server for ADHD-optimized task management using Vikunja and Verte
 
 - **Daily Focus Sessions**: AI-ranked tasks based on energy level and work mode
 - **Dependency Awareness**: Blocked tasks excluded, unblocking tasks prioritized
+- **Project Context Switching**: Minimizes cognitive load by grouping tasks intelligently
 - **Smart Filtering**: Natural language to Vikunja filter expression conversion
 - **Task Enrichment**: Automatic metadata generation for ADHD workflows
 - **Full MCP Integration**: Works with Claude, OpenAI, and other MCP-compatible clients
@@ -143,6 +144,48 @@ The server automatically tracks task dependencies from Vikunja's related_tasks A
 - **Focus on unblocking tasks**: Completing tasks that unlock others creates momentum
 - **Use chain progress**: See where you are in multi-step projects
 - **Trust the filter**: Blocked tasks are hidden so you don't get distracted
+
+## Project Context System
+
+The server includes intelligent project context awareness to minimize cognitive load from context switching.
+
+### How It Works
+
+- **Context switching costs**: The AI calculates the cognitive cost of switching between projects
+- **Task grouping**: Tasks from the same project are grouped together in recommendations
+- **Current project continuity**: Use `current_project_id` to prioritize continuing your current work
+
+### Using Current Project
+
+Pass `current_project_id` to `daily-focus` to get recommendations that minimize context switching:
+
+```
+daily-focus with energy="high", mode="deep", current_project_id=8
+```
+
+This tells the AI you're currently working on project 8, so it will:
+1. Prioritize tasks from project 8 first
+2. Group other project tasks to minimize switches
+3. Consider context weight when ordering tasks
+
+### Context Weight Factors
+
+The system considers several factors when calculating switch costs:
+
+| Factor | Impact |
+|--------|--------|
+| **Context weight** | Heavy projects (complex codebases) have higher switching costs |
+| **Related projects** | Projects that share context have lower switching costs |
+| **Same domain** | Projects in the same domain (e.g., "infra") switch easier |
+| **Work type match** | Switching between coding/admin/research has overhead |
+| **Tool requirements** | Different tool requirements increase switching cost |
+
+### ADHD Workflow Tips
+
+- **Set current project**: Always pass `current_project_id` when you're deep in a project
+- **Batch by project**: Complete multiple tasks in one project before switching
+- **Respect the grouping**: The AI groups tasks to protect your focus
+- **Heavy projects need time**: High context-weight projects benefit from longer focus sessions
 
 ## Development
 

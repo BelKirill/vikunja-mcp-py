@@ -73,6 +73,13 @@ def create_server() -> Server:
                             "description": "Project IDs to exclude from selection",
                             "items": {"type": "integer"},
                         },
+                        "current_project_id": {
+                            "type": "integer",
+                            "description": (
+                                "Current project for context continuity. "
+                                "Prioritizes tasks from this project to minimize context switching."
+                            ),
+                        },
                     },
                 },
             ),
@@ -279,6 +286,7 @@ def create_server() -> Server:
                     ),
                     only_projects=arguments.get("only_projects"),
                     exclude_projects=arguments.get("exclude_projects"),
+                    current_project_id=arguments.get("current_project_id"),
                 )
 
             elif name == "get-full-task":

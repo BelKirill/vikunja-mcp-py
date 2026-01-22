@@ -45,8 +45,21 @@ class ToolHandlers:
         instructions: str = "General request, give a good assortment of tasks",
         only_projects: list[int] | None = None,
         exclude_projects: list[int] | None = None,
+        current_project_id: int | None = None,
     ) -> dict[str, Any]:
-        """Get AI-recommended tasks for focus session."""
+        """Get AI-recommended tasks for focus session.
+
+        Args:
+            energy: Current energy level (low, medium, high, social)
+            mode: Work mode preference (deep, quick, admin)
+            hours: Target focus session duration
+            max_items: Maximum tasks to return
+            instructions: Free text instructions for task selection
+            only_projects: Restrict to these project IDs
+            exclude_projects: Exclude these project IDs
+            current_project_id: Current project for context continuity
+                              (prioritizes tasks from this project to minimize switching)
+        """
         logger.info(f"daily_focus called: energy={energy}, mode={mode}")
 
         options = FocusOptions(
@@ -69,8 +82,8 @@ class ToolHandlers:
         # Get projects for context
         projects = await self.vikunja.get_all_projects()
 
-        # Get AI-ranked tasks
-        decision = await self.engine.get_focus_tasks(tasks, options, projects)
+        # Get AI-ranked tasks with project context awareness
+        decision = await self.engine.get_focus_tasks(tasks, options, projects, current_project_id)
 
         # Count blocked tasks for summary
         blocked_count = sum(1 for t in tasks if t.raw_task.is_blocked)
@@ -156,9 +169,7 @@ class ToolHandlers:
         # Build dependency info from related_tasks
         # Get all tasks for chain analysis context
         all_tasks = await self.vikunja.get_incomplete_tasks()
-        blocking_info = self.engine.dependency_checker.get_blocking_info(
-            raw_task, all_tasks
-        )
+        blocking_info = self.engine.dependency_checker.get_blocking_info(raw_task, all_tasks)
 
         # Build chain context if task is part of a chain
         chain_context = None
