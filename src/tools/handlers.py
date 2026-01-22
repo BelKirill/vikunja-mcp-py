@@ -72,6 +72,24 @@ class ToolHandlers:
         # Get AI-ranked tasks
         decision = await self.engine.get_focus_tasks(tasks, options, projects)
 
+        # Get comment counts for ranked tasks (for context)
+        comment_counts: dict[int, int] = {}
+        recent_comments: dict[int, str | None] = {}
+        for rt in decision.ranked_tasks:
+            try:
+                comments = await self.vikunja.get_task_comments(rt.task.raw_task.id)
+                comment_counts[rt.task.raw_task.id] = len(comments)
+                if comments:
+                    # Get most recent comment preview
+                    last_comment = comments[-1].comment
+                    if len(last_comment) > 100:
+                        recent = last_comment[:100] + "..."
+                    else:
+                        recent = last_comment
+                    recent_comments[rt.task.raw_task.id] = recent
+            except Exception:
+                comment_counts[rt.task.raw_task.id] = 0
+
         return {
             "message": "Focus tasks retrieved successfully",
             "summary": {
@@ -94,6 +112,8 @@ class ToolHandlers:
                     "score": rt.score,
                     "reasoning": rt.reasoning,
                     "metadata": rt.task.metadata.model_dump() if rt.task.metadata else None,
+                    "comment_count": comment_counts.get(rt.task.raw_task.id, 0),
+                    "recent_comment": recent_comments.get(rt.task.raw_task.id),
                 }
                 for rt in decision.ranked_tasks
             ],
@@ -383,7 +403,7 @@ class ToolHandlers:
             )
             result = await self.vikunja.upsert_task(task)
 
-        return {
+        response: dict[str, Any] = {
             "success": True,
             "action": action,
             "task": {
@@ -398,6 +418,15 @@ class ToolHandlers:
             },
             "message": f"Task {action} successfully",
         }
+
+        # Suggest adding a comment when marking task complete
+        if done is True and task_id:
+            response["suggestion"] = (
+                "Task marked complete! Consider adding a comment to document "
+                "what was done using the add-comment tool."
+            )
+
+        return response
 
     async def export_project_json(
         self,
