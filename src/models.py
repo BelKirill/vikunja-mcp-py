@@ -169,9 +169,9 @@ class RawTask(BaseModel):
         default_factory=list
     )
     # related_tasks is a map: {relation_kind: [list of related task info]}
-    related_tasks: Annotated[
-        dict[str, list[RelatedTaskInfo]], BeforeValidator(_coerce_dict)
-    ] = Field(default_factory=dict)
+    related_tasks: Annotated[dict[str, list[RelatedTaskInfo]], BeforeValidator(_coerce_dict)] = (
+        Field(default_factory=dict)
+    )
 
     @property
     def blocked_by_ids(self) -> list[int]:

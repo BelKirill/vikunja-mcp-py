@@ -107,9 +107,7 @@ class ContextManager:
                 tool_cost = 0.1
 
         total_cost = min(1.0, base_cost + work_type_cost + energy_cost + tool_cost)
-        logger.debug(
-            f"Switch cost {from_project.name} -> {to_project.name}: {total_cost:.2f}"
-        )
+        logger.debug(f"Switch cost {from_project.name} -> {to_project.name}: {total_cost:.2f}")
         return total_cost
 
     def group_tasks_by_project(
@@ -161,11 +159,7 @@ class ContextManager:
             reordered.extend(grouped.pop(current_project_id))
 
         # Sort remaining project groups by lowest switch cost from current/last
-        last_project = (
-            project_map.get(current_project_id)
-            if current_project_id
-            else None
-        )
+        last_project = project_map.get(current_project_id) if current_project_id else None
 
         while grouped:
             # Find project with lowest switch cost

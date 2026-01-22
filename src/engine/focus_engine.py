@@ -108,9 +108,7 @@ class FocusEngine:
                 )
                 # Rebuild ranked tasks preserving scores but with optimized order
                 task_to_ranked = {rt.task.raw_task.id: rt for rt in result.ranked_tasks}
-                result.ranked_tasks = [
-                    task_to_ranked[t.raw_task.id] for t in optimized_tasks
-                ]
+                result.ranked_tasks = [task_to_ranked[t.raw_task.id] for t in optimized_tasks]
 
             logger.info(
                 f"AI ranked {len(result.ranked_tasks)} tasks "

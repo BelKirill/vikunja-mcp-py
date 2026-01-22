@@ -83,9 +83,7 @@ class ToolHandlers:
         projects = await self.vikunja.get_all_projects()
 
         # Get AI-ranked tasks with project context awareness
-        decision = await self.engine.get_focus_tasks(
-            tasks, options, projects, current_project_id
-        )
+        decision = await self.engine.get_focus_tasks(tasks, options, projects, current_project_id)
 
         # Count blocked tasks for summary
         blocked_count = sum(1 for t in tasks if t.raw_task.is_blocked)
@@ -171,9 +169,7 @@ class ToolHandlers:
         # Build dependency info from related_tasks
         # Get all tasks for chain analysis context
         all_tasks = await self.vikunja.get_incomplete_tasks()
-        blocking_info = self.engine.dependency_checker.get_blocking_info(
-            raw_task, all_tasks
-        )
+        blocking_info = self.engine.dependency_checker.get_blocking_info(raw_task, all_tasks)
 
         # Build chain context if task is part of a chain
         chain_context = None
