@@ -32,7 +32,7 @@ class FocusEngine:
 
         Args:
             context_manager: Optional ContextManager for project context awareness.
-                           If not provided, a default instance is created.
+                           If not provided, creates one using settings.
         """
         settings = get_settings()
 
@@ -44,7 +44,13 @@ class FocusEngine:
         )
         self.model_name = settings.gemini_model
         self.dependency_checker = DependencyChecker()
-        self.context_manager = context_manager or ContextManager()
+
+        # Create ContextManager with config path from settings if available
+        if context_manager:
+            self.context_manager = context_manager
+        else:
+            self.context_manager = ContextManager(config_path=settings.project_context_config)
+
         logger.info(f"FocusEngine initialized with model: {self.model_name}")
 
     async def get_focus_tasks(

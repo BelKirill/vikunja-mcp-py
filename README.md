@@ -180,6 +180,49 @@ The system considers several factors when calculating switch costs:
 | **Work type match** | Switching between coding/admin/research has overhead |
 | **Tool requirements** | Different tool requirements increase switching cost |
 
+### Configuring Project Contexts
+
+You can configure project contexts in three ways (in priority order):
+
+**1. JSON Configuration File**
+
+Set `PROJECT_CONTEXT_CONFIG` environment variable to a JSON file path:
+
+```bash
+export PROJECT_CONTEXT_CONFIG=/path/to/projects.json
+```
+
+Example `projects.json`:
+```json
+{
+  "projects": [
+    {
+      "project_id": 8,
+      "name": "Vikunja MCP",
+      "work_type": "coding",
+      "domain": "vikunja-mcp",
+      "typical_energy": "high",
+      "typical_mode": "deep",
+      "context_weight": 8,
+      "requires_tools": ["vscode", "docker"],
+      "related_projects": [9, 10]
+    }
+  ]
+}
+```
+
+**2. Embedded Metadata in Project Descriptions**
+
+Add a metadata block to project descriptions in Vikunja:
+
+```html
+<!-- PROJECT_CONTEXT:{"work_type": "coding", "context_weight": 7}:END_CONTEXT -->
+```
+
+**3. Defaults from Project Title/Description**
+
+If no configuration is found, projects get default values (context_weight=5, work_type="general").
+
 ### ADHD Workflow Tips
 
 - **Set current project**: Always pass `current_project_id` when you're deep in a project
