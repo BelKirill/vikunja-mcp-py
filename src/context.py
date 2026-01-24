@@ -1,30 +1,195 @@
 """Project context management and context switching cost calculation."""
 
+import json
 import logging
+import re
 from collections import defaultdict
+from pathlib import Path
 
 from .models import (
     EnergyLevel,
     PartialProject,
     ProjectContext,
     Task,
+    WorkMode,
 )
 
 logger = logging.getLogger(__name__)
+
+# Pattern for embedded project context metadata in project descriptions
+PROJECT_CONTEXT_PATTERN = r"<!--\s*PROJECT_CONTEXT:(.*?):END_CONTEXT\s*-->"
+
+
+def load_project_config_from_file(config_path: str) -> dict[int, ProjectContext]:
+    """Load project context configuration from a JSON file.
+
+    Expected JSON format:
+    {
+        "projects": [
+            {
+                "project_id": 8,
+                "name": "Vikunja MCP",
+                "work_type": "coding",
+                "domain": "vikunja-mcp",
+                "typical_energy": "high",
+                "typical_mode": "deep",
+                "context_weight": 8,
+                "requires_tools": ["vscode", "docker"],
+                "related_projects": [9, 10]
+            }
+        ]
+    }
+
+    Args:
+        config_path: Path to the JSON configuration file
+
+    Returns:
+        Dictionary mapping project IDs to ProjectContext objects
+    """
+    path = Path(config_path)
+    if not path.exists():
+        logger.warning(f"Project config file not found: {config_path}")
+        return {}
+
+    try:
+        with open(path) as f:
+            data = json.load(f)
+
+        config: dict[int, ProjectContext] = {}
+        for project_data in data.get("projects", []):
+            project_id = project_data.get("project_id")
+            if project_id is None:
+                logger.warning("Skipping project config without project_id")
+                continue
+
+            # Parse energy and mode enums
+            energy_str = project_data.get("typical_energy", "medium")
+            mode_str = project_data.get("typical_mode", "deep")
+
+            try:
+                typical_energy = EnergyLevel(energy_str)
+            except ValueError:
+                typical_energy = EnergyLevel.MEDIUM
+
+            try:
+                typical_mode = WorkMode(mode_str)
+            except ValueError:
+                typical_mode = WorkMode.DEEP
+
+            ctx = ProjectContext(
+                project_id=project_id,
+                name=project_data.get("name", f"Project {project_id}"),
+                description=project_data.get("description", ""),
+                work_type=project_data.get("work_type", "general"),
+                domain=project_data.get("domain", ""),
+                typical_energy=typical_energy,
+                typical_mode=typical_mode,
+                context_weight=project_data.get("context_weight", 5),
+                requires_tools=project_data.get("requires_tools", []),
+                related_projects=project_data.get("related_projects", []),
+            )
+            config[project_id] = ctx
+
+        logger.info(f"Loaded {len(config)} project contexts from {config_path}")
+        return config
+
+    except json.JSONDecodeError as e:
+        logger.error(f"Failed to parse project config JSON: {e}")
+        return {}
+    except Exception as e:
+        logger.error(f"Failed to load project config: {e}")
+        return {}
+
+
+def parse_embedded_project_context(
+    project: PartialProject,
+) -> ProjectContext | None:
+    """Parse embedded context metadata from project description.
+
+    Looks for a JSON block in the format:
+    <!-- PROJECT_CONTEXT:{"work_type": "coding", ...}:END_CONTEXT -->
+
+    Args:
+        project: The project with potential embedded metadata
+
+    Returns:
+        ProjectContext if metadata found, None otherwise
+    """
+    if not project.description:
+        return None
+
+    match = re.search(PROJECT_CONTEXT_PATTERN, project.description, re.DOTALL)
+    if not match:
+        return None
+
+    try:
+        metadata_json = match.group(1).strip()
+        data = json.loads(metadata_json)
+
+        # Parse energy and mode enums
+        energy_str = data.get("typical_energy", "medium")
+        mode_str = data.get("typical_mode", "deep")
+
+        try:
+            typical_energy = EnergyLevel(energy_str)
+        except ValueError:
+            typical_energy = EnergyLevel.MEDIUM
+
+        try:
+            typical_mode = WorkMode(mode_str)
+        except ValueError:
+            typical_mode = WorkMode.DEEP
+
+        # Extract clean description (without metadata block)
+        clean_desc = re.sub(PROJECT_CONTEXT_PATTERN, "", project.description).strip()
+
+        return ProjectContext(
+            project_id=project.id,
+            name=data.get("name", project.title),
+            description=clean_desc,
+            work_type=data.get("work_type", "general"),
+            domain=data.get("domain", ""),
+            typical_energy=typical_energy,
+            typical_mode=typical_mode,
+            context_weight=data.get("context_weight", 5),
+            requires_tools=data.get("requires_tools", []),
+            related_projects=data.get("related_projects", []),
+        )
+
+    except json.JSONDecodeError as e:
+        logger.warning(f"Failed to parse embedded project context for {project.id}: {e}")
+        return None
+    except Exception as e:
+        logger.warning(f"Error parsing project context for {project.id}: {e}")
+        return None
 
 
 class ContextManager:
     """Manages project context and calculates context switching costs."""
 
-    def __init__(self, project_config: dict[int, ProjectContext] | None = None):
+    def __init__(
+        self,
+        project_config: dict[int, ProjectContext] | None = None,
+        config_path: str | None = None,
+    ):
         """Initialize the context manager.
 
         Args:
             project_config: Optional pre-configured project contexts.
                            Keys are project IDs, values are ProjectContext objects.
+            config_path: Optional path to JSON config file. If provided,
+                        loads project contexts from the file.
         """
-        self._config: dict[int, ProjectContext] = project_config or {}
+        self._config: dict[int, ProjectContext] = {}
         self._current_project_id: int | None = None
+
+        # Load from config file if provided
+        if config_path:
+            self._config = load_project_config_from_file(config_path)
+
+        # Override with explicitly provided config
+        if project_config:
+            self._config.update(project_config)
 
     def set_current_project(self, project_id: int | None) -> None:
         """Set the current active project context."""
@@ -33,10 +198,23 @@ class ContextManager:
     def get_context(self, project: PartialProject) -> ProjectContext:
         """Get rich context for a project.
 
-        Uses pre-configured context if available, otherwise creates default.
+        Priority order:
+        1. Pre-configured context (from file or explicit config)
+        2. Embedded metadata in project description
+        3. Default context from project title/description
         """
+        # Check pre-configured contexts first
         if project.id in self._config:
             return self._config[project.id]
+
+        # Try to parse embedded metadata from description
+        embedded_ctx = parse_embedded_project_context(project)
+        if embedded_ctx:
+            # Cache for future lookups
+            self._config[project.id] = embedded_ctx
+            return embedded_ctx
+
+        # Fall back to default
         return ProjectContext.from_partial(project)
 
     def enrich_projects(

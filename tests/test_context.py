@@ -306,3 +306,221 @@ class TestConfiguredContexts:
         assert enriched[0].context_weight == 8
         assert enriched[1].name == "Project B"
         assert enriched[1].context_weight == 5  # Default
+
+
+class TestConfigFileLoading:
+    """Tests for loading project config from JSON files."""
+
+    def test_load_valid_config_file(self, tmp_path):
+        """Valid JSON config file is loaded correctly."""
+        from src.context import load_project_config_from_file
+
+        config_file = tmp_path / "projects.json"
+        config_file.write_text(
+            """{
+            "projects": [
+                {
+                    "project_id": 8,
+                    "name": "Vikunja MCP",
+                    "work_type": "coding",
+                    "domain": "vikunja-mcp",
+                    "typical_energy": "high",
+                    "typical_mode": "deep",
+                    "context_weight": 8,
+                    "requires_tools": ["vscode", "docker"],
+                    "related_projects": [9, 10]
+                },
+                {
+                    "project_id": 9,
+                    "name": "Admin Tasks",
+                    "work_type": "admin",
+                    "typical_energy": "low",
+                    "context_weight": 2
+                }
+            ]
+        }"""
+        )
+
+        config = load_project_config_from_file(str(config_file))
+
+        assert len(config) == 2
+        assert 8 in config
+        assert 9 in config
+
+        mcp_ctx = config[8]
+        assert mcp_ctx.name == "Vikunja MCP"
+        assert mcp_ctx.work_type == "coding"
+        assert mcp_ctx.domain == "vikunja-mcp"
+        assert mcp_ctx.typical_energy == EnergyLevel.HIGH
+        assert mcp_ctx.context_weight == 8
+        assert "docker" in mcp_ctx.requires_tools
+        assert 9 in mcp_ctx.related_projects
+
+        admin_ctx = config[9]
+        assert admin_ctx.typical_energy == EnergyLevel.LOW
+        assert admin_ctx.context_weight == 2
+
+    def test_load_missing_file_returns_empty(self, tmp_path):
+        """Missing config file returns empty dict."""
+        from src.context import load_project_config_from_file
+
+        config = load_project_config_from_file(str(tmp_path / "nonexistent.json"))
+        assert config == {}
+
+    def test_load_invalid_json_returns_empty(self, tmp_path):
+        """Invalid JSON returns empty dict."""
+        from src.context import load_project_config_from_file
+
+        config_file = tmp_path / "invalid.json"
+        config_file.write_text("{ this is not valid json }")
+
+        config = load_project_config_from_file(str(config_file))
+        assert config == {}
+
+    def test_context_manager_loads_from_path(self, tmp_path):
+        """ContextManager loads config from path."""
+        config_file = tmp_path / "projects.json"
+        config_file.write_text(
+            """{
+            "projects": [
+                {"project_id": 5, "name": "From File", "context_weight": 7}
+            ]
+        }"""
+        )
+
+        manager = ContextManager(config_path=str(config_file))
+        partial = PartialProject(id=5, title="Original Name")
+        ctx = manager.get_context(partial)
+
+        assert ctx.name == "From File"
+        assert ctx.context_weight == 7
+
+    def test_explicit_config_overrides_file(self, tmp_path):
+        """Explicitly passed config overrides file config."""
+        config_file = tmp_path / "projects.json"
+        config_file.write_text(
+            """{
+            "projects": [
+                {"project_id": 5, "name": "From File", "context_weight": 3}
+            ]
+        }"""
+        )
+
+        explicit = {5: ProjectContext(project_id=5, name="Explicit", context_weight=9)}
+        manager = ContextManager(config_path=str(config_file), project_config=explicit)
+
+        partial = PartialProject(id=5, title="Original")
+        ctx = manager.get_context(partial)
+
+        assert ctx.name == "Explicit"
+        assert ctx.context_weight == 9
+
+
+class TestEmbeddedMetadataParsing:
+    """Tests for parsing embedded context from project descriptions."""
+
+    def test_parse_valid_embedded_context(self):
+        """Valid embedded context is parsed correctly."""
+        from src.context import parse_embedded_project_context
+
+        project = PartialProject(
+            id=10,
+            title="Test Project",
+            description="""
+            This is a project description.
+
+            <!-- PROJECT_CONTEXT:{"work_type": "coding", "domain": "test", "context_weight": 7}:END_CONTEXT -->
+            """,
+        )
+
+        ctx = parse_embedded_project_context(project)
+
+        assert ctx is not None
+        assert ctx.project_id == 10
+        assert ctx.work_type == "coding"
+        assert ctx.domain == "test"
+        assert ctx.context_weight == 7
+        assert "PROJECT_CONTEXT" not in ctx.description
+
+    def test_parse_full_embedded_context(self):
+        """Full embedded context with all fields."""
+        from src.context import parse_embedded_project_context
+
+        project = PartialProject(
+            id=11,
+            title="Full Context",
+            description="""<!-- PROJECT_CONTEXT:{"name": "Custom Name", "work_type": "research", "domain": "science", "typical_energy": "high", "typical_mode": "deep", "context_weight": 9, "requires_tools": ["jupyter", "python"], "related_projects": [12, 13]}:END_CONTEXT -->""",
+        )
+
+        ctx = parse_embedded_project_context(project)
+
+        assert ctx is not None
+        assert ctx.name == "Custom Name"
+        assert ctx.work_type == "research"
+        assert ctx.typical_energy == EnergyLevel.HIGH
+        assert ctx.context_weight == 9
+        assert "jupyter" in ctx.requires_tools
+        assert 12 in ctx.related_projects
+
+    def test_parse_no_embedded_returns_none(self):
+        """Project without embedded context returns None."""
+        from src.context import parse_embedded_project_context
+
+        project = PartialProject(
+            id=12,
+            title="No Metadata",
+            description="Just a regular description without metadata.",
+        )
+
+        ctx = parse_embedded_project_context(project)
+        assert ctx is None
+
+    def test_parse_empty_description_returns_none(self):
+        """Empty description returns None."""
+        from src.context import parse_embedded_project_context
+
+        project = PartialProject(id=13, title="Empty", description="")
+        ctx = parse_embedded_project_context(project)
+        assert ctx is None
+
+    def test_parse_invalid_json_returns_none(self):
+        """Invalid JSON in embedded context returns None."""
+        from src.context import parse_embedded_project_context
+
+        project = PartialProject(
+            id=14,
+            title="Bad JSON",
+            description="<!-- PROJECT_CONTEXT:{invalid json}:END_CONTEXT -->",
+        )
+
+        ctx = parse_embedded_project_context(project)
+        assert ctx is None
+
+    def test_context_manager_uses_embedded(self):
+        """ContextManager parses embedded metadata when no config."""
+        project = PartialProject(
+            id=20,
+            title="Embedded Project",
+            description='<!-- PROJECT_CONTEXT:{"work_type": "admin", "context_weight": 3}:END_CONTEXT -->',
+        )
+
+        manager = ContextManager()
+        ctx = manager.get_context(project)
+
+        assert ctx.work_type == "admin"
+        assert ctx.context_weight == 3
+
+    def test_config_takes_priority_over_embedded(self):
+        """Pre-configured context takes priority over embedded."""
+        project = PartialProject(
+            id=21,
+            title="Has Both",
+            description='<!-- PROJECT_CONTEXT:{"work_type": "embedded", "context_weight": 1}:END_CONTEXT -->',
+        )
+
+        config = {21: ProjectContext(project_id=21, name="Config", work_type="config", context_weight=9)}
+        manager = ContextManager(project_config=config)
+        ctx = manager.get_context(project)
+
+        assert ctx.work_type == "config"
+        assert ctx.context_weight == 9

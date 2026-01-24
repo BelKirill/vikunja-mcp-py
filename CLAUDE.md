@@ -114,8 +114,20 @@ All work follows this flow: **Issue → Ticket → Branch → PR**
 1. Find/create task in Vikunja project 8
 2. Create branch: `git checkout -b mcp-<task-id>-<description>`
 3. Implement changes with atomic commits
-4. Push and create PR
-5. Mark task done after merge
+4. **Before pushing:** Run format, lint, and tests
+   ```bash
+   .venv/bin/ruff format src/
+   .venv/bin/ruff check src/ --fix
+   .venv/bin/pytest tests/ -v
+   ```
+5. Push and create PR
+6. Mark task done after merge
+
+### Pre-Push Checklist
+- [ ] Format passes: `.venv/bin/ruff format src/`
+- [ ] Lint passes: `.venv/bin/ruff check src/`
+- [ ] All tests pass: `.venv/bin/pytest tests/ -v`
+- [ ] Only relevant files staged (no unrelated changes)
 
 ## PLAN.md Usage
 

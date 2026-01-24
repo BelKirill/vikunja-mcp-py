@@ -24,6 +24,9 @@ class Settings(BaseSettings):
     # Server configuration
     log_level: str = "INFO"
 
+    # Project context configuration
+    project_context_config: str | None = None  # Path to project context JSON file
+
 
 # Global settings instance (lazy loaded)
 _settings: Settings | None = None
